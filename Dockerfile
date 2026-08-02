@@ -20,7 +20,7 @@ RUN chmod +x /docker-entrypoint.d/40-joj-config.sh
 # Sans ce filtre, $host, $remote_addr, $http_upgrade… seraient vidés.
 ENV NGINX_ENVSUBST_FILTER="BACKEND_URL"
 
-ENV BACKEND_URL=http://backend:8089
+ENV BACKEND_URL=https://seddo.innovimpactdev.cloud/
 ENV API_BASE=/api
 
 EXPOSE 80
