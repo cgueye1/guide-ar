@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#04070E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>JOJ Dakar 2026 — Guide</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="css/styles.css">
+<script src="config.js"></script>
+</head>
+<body>
+
+<!-- ═══════════════ 1. CHOIX DE LA LANGUE ═══════════════ -->
+<section id="screen-lang" class="screen screen--lang is-active">
+  <div class="lang-aura" aria-hidden="true"></div>
+
+  <div class="lang-inner">
+    <p class="eyebrow">Dakar · 2026</p>
+    <h1 class="lang-title">
+      <span class="lang-title__l1">Jeux Olympiques</span>
+      <span class="lang-title__l2">de la Jeunesse</span>
+    </h1>
+    <p class="lang-sub">Choisissez votre langue<br><span>Choose your language</span></p>
+
+    <div class="lang-grid">
+      <button class="flag" data-lang="fr" type="button">
+        <span class="flag__art flag__art--fr" aria-hidden="true">
+          <i></i><i></i><i></i>
+          <svg viewBox="0 0 24 24" class="flag__star"><path d="M12 2l2.6 7.9H23l-6.7 4.9 2.6 7.9L12 17.8 5.1 22.7l2.6-7.9L1 9.9h8.4z"/></svg>
+        </span>
+        <span class="flag__name">Français</span>
+      </button>
+
+      <button class="flag" data-lang="en" type="button">
+        <span class="flag__art flag__art--en" aria-hidden="true">
+          <svg viewBox="0 0 60 40" class="flag__uk">
+            <rect width="60" height="40" fill="#0B2B5C"/>
+            <path d="M0 0l60 40M60 0L0 40" stroke="#F2F4F8" stroke-width="8"/>
+            <path d="M0 0l60 40M60 0L0 40" stroke="#C8102E" stroke-width="4"/>
+            <path d="M30 0v40M0 20h60" stroke="#F2F4F8" stroke-width="13"/>
+            <path d="M30 0v40M0 20h60" stroke="#C8102E" stroke-width="7"/>
+          </svg>
+        </span>
+        <span class="flag__name">English</span>
+      </button>
+    </div>
+
+    <p class="lang-foot">Pointez · Appuyez · Découvrez</p>
+  </div>
+</section>
+
+
+<!-- ═══════════════ 2. CAMÉRA ═══════════════ -->
+<section id="screen-cam" class="screen screen--cam">
+
+  <video id="video" playsinline autoplay muted></video>
+  <canvas id="canvas" hidden></canvas>
+
+  <!-- image figée pendant le scan -->
+  <img id="freeze" class="freeze" alt="" hidden>
+
+  <div class="grain" aria-hidden="true"></div>
+  <div class="vignette" aria-hidden="true"></div>
+
+  <!-- barre HUD -->
+  <header class="hud">
+    <div class="hud__brand">
+      <span class="hud__mark" aria-hidden="true"></span>
+      <span class="hud__id">JOJ<b>26</b></span>
+      <span class="hud__geo" id="geoDot" data-state="off" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 22s7-6.4 7-12A7 7 0 105 10c0 5.6 7 12 7 12z"/><circle cx="12" cy="10" r="2.4"/></svg>
+      </span>
+    </div>
+
+    <div class="hud__switch" role="group" aria-label="Langue">
+      <button class="sw" data-lang="fr" type="button">FR</button>
+      <span class="sw__sep" aria-hidden="true"></span>
+      <button class="sw" data-lang="en" type="button">EN</button>
+    </div>
+  </header>
+
+  <!-- réticule -->
+  <div class="reticle" id="reticle" aria-hidden="true">
+    <span class="reticle__c reticle__c--tl"></span>
+    <span class="reticle__c reticle__c--tr"></span>
+    <span class="reticle__c reticle__c--bl"></span>
+    <span class="reticle__c reticle__c--br"></span>
+  </div>
+
+  <!-- balayage de scan -->
+  <div class="sweep" id="sweep" aria-hidden="true"></div>
+
+  <!-- pied : statut + bouton -->
+  <footer class="dock">
+    <p class="dock__hint" id="hint" data-i18n="aim">Visez un monument, puis appuyez</p>
+
+    <button class="trigger" id="trigger" type="button">
+      <span class="trigger__ring" aria-hidden="true"></span>
+      <span class="trigger__ring trigger__ring--2" aria-hidden="true"></span>
+      <span class="trigger__core">
+        <span class="trigger__label" data-i18n="guide">GUIDE</span>
+      </span>
+    </button>
+  </footer>
+
+  <!-- erreur caméra -->
+  <div class="camfail" id="camfail" hidden>
+    <p class="camfail__t" data-i18n="camTitle">Caméra inaccessible</p>
+    <p class="camfail__d" data-i18n="camBody">Autorisez l'accès à la caméra dans les réglages de votre navigateur, puis rechargez.</p>
+    <button class="btn-ghost" id="camretry" type="button" data-i18n="retry">Réessayer</button>
+  </div>
+</section>
+
+
+<!-- ═══════════════ 3. RÉSULTAT ═══════════════ -->
+<section id="screen-res" class="screen screen--res" aria-live="polite">
+
+  <div class="sheet" id="sheet">
+
+    <button class="back" id="back" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      <span data-i18n="back">Retour</span>
+    </button>
+
+    <!-- état : trouvé -->
+    <div id="res-found" hidden>
+      <div class="meter">
+        <span class="meter__label" data-i18n="match">Correspondance</span>
+        <span class="meter__track"><i id="meterFill"></i></span>
+        <span class="meter__val" id="meterVal">—</span>
+      </div>
+
+      <p class="res-cat" id="resCat">—</p>
+      <h2 class="res-name" id="resName" data-glitch="">—</h2>
+
+      <div class="res-geo">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s7-6.4 7-12A7 7 0 105 10c0 5.6 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>
+        <span id="resAddr">—</span>
+      </div>
+
+      <div class="tube" id="tubeWrap" hidden>
+        <div class="tube__frame"><iframe id="tube" title="Video" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe></div>
+      </div>
+
+      <p class="res-body" id="resDesc">—</p>
+
+      <div class="coords">
+        <span id="resLat">—</span>
+        <span class="coords__dot" aria-hidden="true"></span>
+        <span id="resLon">—</span>
+      </div>
+    </div>
+
+    <!-- état : reconnu mais trop loin -->
+    <div id="res-far" hidden>
+      <div class="far">
+        <div class="far__radar" aria-hidden="true">
+          <span class="far__ring"></span>
+          <span class="far__ring far__ring--2"></span>
+          <span class="far__ring far__ring--3"></span>
+          <span class="far__pin">
+            <svg viewBox="0 0 24 24"><path d="M12 22s7-6.4 7-12A7 7 0 105 10c0 5.6 7 12 7 12z"/><circle cx="12" cy="10" r="2.4"/></svg>
+          </span>
+        </div>
+
+        <p class="far__dist"><b id="farKm">—</b><span id="farUnit">km</span></p>
+        <p class="far__away" id="farAway">de distance</p>
+
+        <h2 class="far__t" data-i18n="farTitle">Vous êtes trop loin</h2>
+        <p class="far__d" data-i18n="farBody">Ce lieu se débloque dès que vous êtes à moins d'un kilomètre.</p>
+        <button class="btn-ghost" id="farRetry" type="button" data-i18n="tryAgain">Réessayer</button>
+      </div>
+    </div>
+
+    <!-- état : non reconnu -->
+    <div id="res-none" hidden>
+      <div class="none">
+        <div class="none__glyph" aria-hidden="true"><span></span><span></span><span></span></div>
+        <h2 class="none__t" data-i18n="noneTitle">Aucun lieu reconnu</h2>
+        <p class="none__d" id="noneMsg" data-i18n="noneBody">Rapprochez-vous du monument et cadrez-le entièrement, puis réessayez.</p>
+        <button class="btn-ghost" id="retry" type="button" data-i18n="tryAgain">Réessayer</button>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- ═══════════════ DEMANDE DE POSITION ═══════════════ -->
+<div class="geoask" id="geoask" hidden>
+  <div class="geoask__card">
+    <div class="geoask__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M12 22s7-6.4 7-12A7 7 0 105 10c0 5.6 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>
+    </div>
+    <h2 class="geoask__t" data-i18n="geoTitle">Position indisponible</h2>
+    <p class="geoask__d" data-i18n="geoBody">Activez la localisation pour débloquer les lieux autour de vous.</p>
+    <button class="btn-ghost" id="geoAllow" type="button" data-i18n="geoAllow">Activer la localisation</button>
+    <button class="geoask__skip" id="geoSkip" type="button" data-i18n="geoSkip">Continuer sans</button>
+  </div>
+</div>
+
+
+<!-- ═══════════════ SCAN ═══════════════ -->
+<div class="scan" id="scan" hidden>
+  <div class="scan__pulse" aria-hidden="true"></div>
+  <p class="scan__txt" data-i18n="scanning">Analyse en cours</p>
+</div>
+
+<script src="js/i18n.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

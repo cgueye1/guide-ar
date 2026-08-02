@@ -1,0 +1,12 @@
+services:
+  joj-ar:
+    build: .
+    container_name: joj-ar
+    ports:
+      - "8080:80"
+    environment:
+      BACKEND_URL: "http://host.docker.internal:8089"
+      API_BASE:    "/api"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
