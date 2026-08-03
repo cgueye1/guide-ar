@@ -1,0 +1,65 @@
+#!/bin/sh
+# ══════════════════════════════════════════════════════════
+#  JOJ Dakar 2026 — préparation des variables d'environnement
+#
+#  Fichier « .envsh » : le docker-entrypoint de nginx le SOURCE
+#  (au lieu de l'exécuter), les exports sont donc visibles par
+#  20-envsubst-on-templates.sh qui remplit nginx.conf.template.
+#  Le préfixe 05 garantit qu'il passe avant.
+# ══════════════════════════════════════════════════════════
+
+# ── 1. schéma obligatoire : proxy_pass refuse une URL sans http(s):// ──
+case "${BACKEND_URL:-}" in
+  '')                 BACKEND_URL="http://127.0.0.1:8089" ;;
+  http://*|https://*) ;;
+  *)                  BACKEND_URL="http://${BACKEND_URL}" ;;
+esac
+
+# ── 2. supprimer les slashs finaux ──
+#    "https://api.exemple.com/" produirait sinon "//api/..." côté backend.
+while :; do
+  case "$BACKEND_URL" in
+    */) BACKEND_URL="${BACKEND_URL%/}" ;;
+     *) break ;;
+  esac
+done
+
+# ── 3. découpage schéma / hôte / port / chemin ──
+_scheme="${BACKEND_URL%%://*}"
+_rest="${BACKEND_URL#*://}"
+_hostport="${_rest%%/*}"
+_path=""
+case "$_rest" in */*) _path="/${_rest#*/}" ;; esac
+_host="${_hostport%%:*}"
+_port=""
+case "$_hostport" in *:*) _port=":${_hostport##*:}" ;; esac
+
+# En-tête Host envoyé au backend : son propre nom d'hôte, jamais celui
+# du front (sinon le reverse proxy du backend ne trouve pas son vhost).
+JOJ_BACKEND_HOST="$_hostport"
+
+# ── 4. resolvers DNS ──
+#    proxy_pass utilise une variable, nginx re-résout donc le backend à
+#    chaud et a besoin d'un resolver. Dans Docker c'est 127.0.0.11.
+JOJ_RESOLVERS="$(awk '/^[[:space:]]*nameserver/ && $2 !~ /:/ { printf "%s ", $2 }' /etc/resolv.conf 2>/dev/null)"
+[ -n "$JOJ_RESOLVERS" ] || JOJ_RESOLVERS="127.0.0.11"
+
+# ── 5. repli sur /etc/hosts ──
+#    Le resolver de nginx ignore /etc/hosts : un nom déclaré via
+#    extra_hosts (host.docker.internal en local) serait introuvable.
+#    On le remplace par son IP. Uniquement en http, pour ne pas casser
+#    la validation du certificat TLS en https.
+if [ "$_scheme" = "http" ]; then
+  _ip="$(awk -v h="$_host" '$1 !~ /^#/ { for (i = 2; i <= NF; i++) if ($i == h) { print $1; exit } }' /etc/hosts 2>/dev/null)"
+  if [ -n "$_ip" ]; then
+    BACKEND_URL="http://${_ip}${_port}${_path}"
+  fi
+fi
+
+export BACKEND_URL JOJ_BACKEND_HOST JOJ_RESOLVERS
+
+echo "[joj] BACKEND_URL      = ${BACKEND_URL}"
+echo "[joj] JOJ_BACKEND_HOST = ${JOJ_BACKEND_HOST}"
+echo "[joj] JOJ_RESOLVERS    = ${JOJ_RESOLVERS}"
+
+unset _scheme _rest _hostport _path _host _port _ip

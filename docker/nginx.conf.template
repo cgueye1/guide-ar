@@ -1,11 +1,25 @@
 # ══════════════════════════════════════════════════════════
-#  JOJ Dakar 2026 — Guide AR
+#  JOJ Dakar 2026 — Guide AR  ·  vhost nginx
+#
+#  Ce fichier est un TEMPLATE : les variables entre accolades sont
+#  remplacées au démarrage par 20-envsubst-on-templates.sh,
+#  puis écrites dans /etc/nginx/conf.d/default.conf.
+#  Seules les variables listées dans NGINX_ENVSUBST_FILTER
+#  (Dockerfile) sont substituées : $host, $remote_addr… sont
+#  donc préservées.
 # ══════════════════════════════════════════════════════════
 
 map $http_upgrade $connection_upgrade {
   default upgrade;
   ''      close;
 }
+
+# DNS du réseau Docker. Indispensable car proxy_pass utilise une
+# variable : nginx re-résout le backend à chaud au lieu de figer son
+# IP au démarrage — sinon chaque redéploiement du backend provoquerait
+# des 502 jusqu'au redémarrage de ce conteneur.
+resolver ${JOJ_RESOLVERS} valid=10s ipv6=off;
+resolver_timeout 5s;
 
 server {
   listen 80;
@@ -15,49 +29,69 @@ server {
   root  /usr/share/nginx/html;
   index index.html;
 
-  # ── sécurité ──
-  add_header X-Content-Type-Options "nosniff"    always;
-  add_header X-Frame-Options        "SAMEORIGIN" always;
-  add_header Referrer-Policy        "no-referrer-when-downgrade" always;
-  # la caméra doit rester autorisée sur cette origine
-  add_header Permissions-Policy     "camera=(self), microphone=(), geolocation=(self)" always;
+  server_tokens off;
+
+  # On est derrière le proxy HTTPS de Dokploy : les redirections
+  # doivent rester relatives, sinon elles pointeraient vers http://…:80.
+  absolute_redirect off;
+
+  client_max_body_size 12M;
 
   # ── compression ──
   gzip            on;
   gzip_vary       on;
   gzip_min_length 512;
   gzip_comp_level 6;
-  gzip_types      text/plain text/css application/javascript application/json
-                  image/svg+xml application/manifest+json;
+  # les deux types MIME du JavaScript sont listés : selon la version de
+  # mime.types nginx sert les .js en application/ ou en text/javascript,
+  # et un type manquant ici signifierait du JS non compressé.
+  gzip_types      text/plain text/css text/javascript application/javascript
+                  application/json image/svg+xml application/manifest+json;
 
-  client_max_body_size 12M;
-
-  # ── santé ──
+  # ── santé (utilisé par le HEALTHCHECK et par Dokploy) ──
   location = /healthz {
     access_log off;
-    add_header Content-Type text/plain;
+    default_type text/plain;
     return 200 "ok\n";
   }
 
-  # ── config.js : jamais mis en cache ──
+  location = /favicon.ico {
+    access_log off;
+    log_not_found off;
+    return 204;
+  }
+
+  # ── config.js : réécrit à chaque démarrage, jamais mis en cache ──
   location = /config.js {
-    add_header Cache-Control "no-store, must-revalidate";
-    expires -1;
+    include /etc/nginx/snippets/joj-headers.conf;
+    add_header Cache-Control "no-store" always;
   }
 
   # ── proxy vers le backend Spring Boot ──
   location /api/ {
-    proxy_pass ${BACKEND_URL}/api/;
+    include /etc/nginx/snippets/joj-headers.conf;
+
+    # $request_uri = URI d'origine + query string, transmis tel quel.
+    # Obligatoire ici : avec une variable dans proxy_pass, nginx ne
+    # réécrit pas le préfixe de location automatiquement.
+    set $joj_backend "${BACKEND_URL}";
+    proxy_pass $joj_backend$request_uri;
 
     proxy_http_version 1.1;
-    proxy_set_header Host              $host;
+    proxy_set_header Host              ${JOJ_BACKEND_HOST};
+    proxy_set_header X-Forwarded-Host  $host;
     proxy_set_header X-Real-IP         $remote_addr;
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header Upgrade           $http_upgrade;
     proxy_set_header Connection        $connection_upgrade;
 
-    # la reconnaissance Vertex AI prend 2 à 4 secondes
+    # Backend en HTTPS : envoyer le SNI, sinon la poignée de main
+    # échoue sur un hôte mutualisé.
+    proxy_ssl_server_name on;
+    proxy_ssl_protocols   TLSv1.2 TLSv1.3;
+
+    # la reconnaissance Vertex AI prend 2 à 4 s (25 s de timeout client)
     proxy_connect_timeout 10s;
     proxy_send_timeout    60s;
     proxy_read_timeout    60s;
@@ -65,16 +99,26 @@ server {
     proxy_request_buffering off;
   }
 
-  # ── assets : cache long ──
-  location ~* \.(css|js|woff2?|svg|png|jpe?g|webp|ico)$ {
-    expires 30d;
-    add_header Cache-Control "public, immutable";
+  # ── médias et polices : contenu figé, cache long ──
+  location ~* \.(woff2?|ttf|otf|eot|svg|png|jpe?g|webp|gif|avif|ico|mp4)$ {
+    include /etc/nginx/snippets/joj-headers.conf;
+    add_header Cache-Control "public, max-age=2592000, immutable" always;
+    try_files $uri =404;
+  }
+
+  # ── css / js : noms de fichiers sans empreinte de version ──
+  #    Un cache long figerait l'application pendant 30 jours après
+  #    chaque déploiement. On revalide donc via ETag (304, très léger).
+  location ~* \.(css|js|json|map)$ {
+    include /etc/nginx/snippets/joj-headers.conf;
+    add_header Cache-Control "no-cache" always;
     try_files $uri =404;
   }
 
   # ── application ──
   location / {
+    include /etc/nginx/snippets/joj-headers.conf;
+    add_header Cache-Control "no-cache" always;
     try_files $uri $uri/ /index.html;
-    add_header Cache-Control "no-cache";
   }
 }

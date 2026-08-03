@@ -1,5 +1,11 @@
 .git
 .gitignore
+.github
 *.md
 node_modules
 .DS_Store
+docker-compose.yml
+Dockerfile
+.dockerignore
+.vscode
+.idea

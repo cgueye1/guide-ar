@@ -42,21 +42,44 @@ npx localtunnel --port 3000
 ## Déployer sur Dokploy
 
 **1. Créer une application** de type `Dockerfile`
+(chemin du Dockerfile : `./Dockerfile`, contexte : `.`)
 
 **2. Variables d'environnement**
 
 | Variable | Valeur | Rôle |
 |---|---|---|
-| `BACKEND_URL` | `http://joj-backend:8089` | adresse interne du Spring Boot |
+| `BACKEND_URL` | `http://joj-backend:8089` | adresse du Spring Boot, **sans slash final** |
 | `API_BASE` | `/api` | chemin appelé par le navigateur |
 
 `BACKEND_URL` doit pointer vers le **nom du service** de votre backend
-dans le réseau Docker de Dokploy, pas vers `localhost`.
+dans le réseau Docker de Dokploy, pas vers `localhost`. Un backend public
+en HTTPS fonctionne aussi (`https://api.exemple.com`) : le SNI est envoyé.
+
+Le nom est ré-résolu toutes les 10 s via le DNS Docker : redéployer le
+backend ne casse pas le proxy.
 
 **3. Port exposé** : `80`
 
 **4. Domaine** : activez le HTTPS (Let's Encrypt).
 Sans HTTPS, la caméra ne démarrera pas.
+
+**5. Health check** (facultatif) : chemin `/healthz`, réponse `200 ok`.
+
+### Vérifier après déploiement
+
+```bash
+curl -i https://votre-domaine/healthz          # → 200 ok
+curl -s https://votre-domaine/config.js        # → API_BASE attendu
+curl -i https://votre-domaine/api/joj-places   # → réponse du backend, pas 502
+```
+
+Les logs de démarrage du conteneur affichent la configuration retenue :
+
+```
+[joj] BACKEND_URL      = http://joj-backend:8089
+[joj] JOJ_BACKEND_HOST = joj-backend:8089
+[joj] JOJ_RESOLVERS    = 127.0.0.11
+```
 
 ---
 
@@ -100,8 +123,10 @@ qu'à une seule origine.
 │   ├── i18n.js             libellés FR / EN
 │   └── app.js              caméra, capture, appel API, rendu
 ├── docker/
-│   ├── nginx.conf.template
-│   └── entrypoint.sh
+│   ├── nginx.conf.template  vhost nginx (source unique)
+│   ├── headers.conf         en-têtes communs, inclus par chaque location
+│   ├── 05-joj-env.envsh     normalise BACKEND_URL avant envsubst
+│   └── entrypoint.sh        → 40-joj-config.sh, réécrit config.js
 ├── Dockerfile
 └── docker-compose.yml      test local
 ```
