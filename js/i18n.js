@@ -16,6 +16,16 @@ const I18N = {
     retry:     "Réessayer",
     holdStill: "Ne bougez pas",
 
+    /* ── parcours de visite ── */
+    stepsTitle: "Parcours de visite",
+    stepWord:   "Étape",
+    stepOf:     "sur",
+    oneStep:    "1 étape",
+    manySteps:  "{n} étapes",
+    prev:       "Précédent",
+    next:       "Suivant",
+    watch:      "Vidéo",
+
     /* ── reconnu mais trop loin ── */
     farTitle:  "Vous êtes trop loin",
     farUnit:   "km",
@@ -51,6 +61,15 @@ const I18N = {
     tryAgain:  "Try again",
     retry:     "Try again",
     holdStill: "Hold still",
+
+    stepsTitle: "Guided tour",
+    stepWord:   "Step",
+    stepOf:     "of",
+    oneStep:    "1 step",
+    manySteps:  "{n} steps",
+    prev:       "Previous",
+    next:       "Next",
+    watch:      "Video",
 
     farTitle:  "You're too far away",
     farUnit:   "km",

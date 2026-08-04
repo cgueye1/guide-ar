@@ -66,6 +66,7 @@ function setLang(v){
 
   // retraduit le résultat déjà affiché
   if (lastState === 'found' && lastPlace)  paintPlace(lastPlace, lastConfidence);
+  if (steps.length && !$('#stepModal').hidden) paintStep();
   if (lastState === 'far')                 paintFar(lastDistance);
 }
 
@@ -361,6 +362,167 @@ function paintPlace(p, confidence){
     $('#tube').src = '';
     wrap.hidden = true;
   }
+
+  loadSteps(p.id);
+}
+
+
+/* ═════════════════════════════════════════════════════════════
+   PARCOURS DE VISITE
+   Un lieu peut avoir 0, 1 ou plusieurs étapes.
+   ═════════════════════════════════════════════════════════════ */
+
+let steps        = [];
+let stepIdx      = 0;
+let stepsPlaceId = null;
+
+async function loadSteps(placeId){
+  // même lieu : on garde les étapes en mémoire et on se contente
+  // de les redessiner (utile au changement de langue)
+  if (placeId && placeId === stepsPlaceId){
+    if (steps.length) paintSteps();
+    return;
+  }
+
+  steps = [];
+  stepsPlaceId = placeId || null;
+  $('#stepsWrap').hidden = true;
+  $('#tl').innerHTML = '';
+
+  if (!placeId) return;
+
+  try {
+    const res = await fetch(`${API}/joj-places/${placeId}/steps`);
+    if (!res.ok) return;
+
+    const data = await res.json();
+    steps = (Array.isArray(data) ? data : []).filter(s => s && s.active !== false);
+
+    if (steps.length) paintSteps();
+
+  } catch (err) {
+    console.warn('steps:', err);   // silencieux : les étapes sont optionnelles
+  }
+}
+
+function paintSteps(){
+  const fr = (lang === 'fr');
+  const t  = I18N[lang];
+
+  $('#stepsCount').textContent = steps.length === 1
+    ? t.oneStep
+    : t.manySteps.replace('{n}', steps.length);
+
+  const list = $('#tl');
+  list.innerHTML = '';
+
+  steps.forEach((s, i) => {
+    const name = (fr ? s.nameFr : s.nameEn) || s.nameFr || s.nameEn || '';
+    const desc = (fr ? s.descriptionFr : s.descriptionEn)
+              || s.descriptionFr || s.descriptionEn || '';
+    const img  = (s.imageUrl || '').trim();
+    const vid  = youtubeId(s.videoLink);
+
+    const li = document.createElement('li');
+    li.className = 'tl__i';
+    li.style.animationDelay = (0.16 + i * 0.09) + 's';
+
+    li.innerHTML = `
+      <span class="tl__dot">${i + 1}</span>
+      <button class="tl__card${img ? '' : ' tl__card--noimg'}" type="button" data-step="${i}">
+        ${img ? `<span class="tl__bg" style="background-image:url('${esc(img)}')"></span>`
+              : `<span class="tl__ghost">${i + 1}</span>`}
+        <span class="tl__scrim"></span>
+        <span class="tl__in">
+          <span class="tl__name">${esc(name)}</span>
+          <span class="tl__x">${esc(desc)}</span>
+          ${vid ? `<span class="tl__play">
+                     <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg>
+                     ${t.watch}
+                   </span>` : ''}
+        </span>
+        <svg class="tl__go" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+      </button>`;
+
+    li.querySelector('.tl__card')
+      .addEventListener('click', () => openStep(i));
+
+    list.appendChild(li);
+  });
+
+  $('#stepsWrap').hidden = false;
+}
+
+/* ── modale ── */
+
+function openStep(i){
+  if (!steps[i]) return;
+  stepIdx = i;
+  paintStep();
+  $('#stepModal').hidden = false;
+  document.body.style.overflow = 'hidden';
+  if (navigator.vibrate) navigator.vibrate(10);
+}
+
+function paintStep(){
+  const fr = (lang === 'fr');
+  const s  = steps[stepIdx];
+  if (!s) return;
+
+  $('#stepIdx').textContent   = stepIdx + 1;
+  $('#stepTotal').textContent = steps.length;
+  $('#stepNum').textContent   = stepIdx + 1;
+
+  $('#stepName').textContent = (fr ? s.nameFr : s.nameEn) || s.nameFr || s.nameEn || '';
+  $('#stepDesc').textContent = (fr ? s.descriptionFr : s.descriptionEn)
+                             || s.descriptionFr || s.descriptionEn || '';
+
+  const img  = (s.imageUrl || '').trim();
+  const el   = $('#stepImg');
+  const hero = $('#stepHero');
+  if (img){
+    el.src = img; el.hidden = false;
+    hero.classList.remove('modal__hero--noimg');
+  } else {
+    el.removeAttribute('src'); el.hidden = true;
+    hero.classList.add('modal__hero--noimg');
+  }
+
+  const vid  = youtubeId(s.videoLink);
+  const wrap = $('#stepTubeWrap');
+  if (vid){
+    $('#stepTube').src = `https://www.youtube-nocookie.com/embed/${vid}?rel=0&modestbranding=1&playsinline=1`;
+    wrap.hidden = false;
+  } else {
+    $('#stepTube').src = '';
+    wrap.hidden = true;
+  }
+
+  $('#stepPrev').disabled = (stepIdx === 0);
+  $('#stepNext').disabled = (stepIdx === steps.length - 1);
+
+  const sc = document.querySelector('.modal__scroll');
+  if (sc) sc.scrollTop = 0;
+}
+
+function closeStep(){
+  $('#stepTube').src = '';
+  $('#stepModal').hidden = true;
+  document.body.style.overflow = '';
+}
+
+function goStep(delta){
+  const next = stepIdx + delta;
+  if (next < 0 || next >= steps.length) return;
+  stepIdx = next;
+  paintStep();
+}
+
+/* échappe le HTML injecté depuis l'API */
+function esc(str){
+  return String(str ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 /* ── écran « trop loin » ── */
@@ -392,6 +554,8 @@ function youtubeId(url){
    ───────────────────────────────────────────── */
 
 function backToCamera(){
+  closeStep();
+  stepsPlaceId = null;
   $('#tube').src = '';
   show('cam');
   setTimeout(reset, 220);
@@ -426,6 +590,19 @@ function init(){
   $('#retry').addEventListener('click', backToCamera);
   $('#farRetry').addEventListener('click', backToCamera);
   $('#camretry').addEventListener('click', startCamera);
+
+  // modale d'étape
+  $('#stepClose').addEventListener('click', closeStep);
+  $('#stepVeil').addEventListener('click',  closeStep);
+  $('#stepPrev').addEventListener('click',  () => goStep(-1));
+  $('#stepNext').addEventListener('click',  () => goStep(+1));
+
+  document.addEventListener('keydown', e => {
+    if ($('#stepModal').hidden) return;
+    if (e.key === 'Escape')     closeStep();
+    if (e.key === 'ArrowLeft')  goStep(-1);
+    if (e.key === 'ArrowRight') goStep(+1);
+  });
 
   window.addEventListener('popstate', () => {
     if (el.screens.res.classList.contains('is-active')) backToCamera();
