@@ -523,13 +523,15 @@ function closeStep(){
    ═══════════════════════════════════════════════════════════ */
 
 const arViewer   = $('#arViewer');
-let   arModelUrl = null;   // évite de recharger le même .glb
+let   arModelKey = null;   // évite de recharger le même couple glb/usdz
 
 function paintArButton(step){
   const btn = $('#stepArBtn');
-  const url = (step && step.glbFileUrl || '').trim();
+  const glbUrl  = (step && step.glbFileUrl  || '').trim();
+  const usdzUrl = (step && step.usdzFileUrl || '').trim();
 
-  if (!url){
+  // le bouton n'apparaît que si au moins un des deux formats existe
+  if (!glbUrl && !usdzUrl){
     btn.hidden = true;
     btn.onclick = null;
     return;
@@ -537,13 +539,13 @@ function paintArButton(step){
 
   btn.hidden = false;
   btn.disabled = false;
-  btn.onclick = () => launchAr(url);
+  btn.onclick = () => launchAr(glbUrl, usdzUrl);
 
-  // précharge le .glb en tâche de fond dès que le bouton apparaît :
+  // précharge le modèle en tâche de fond dès que le bouton apparaît :
   // au moment du tap, activateAR() doit s'exécuter en tout premier,
   // de façon parfaitement synchrone avec le geste utilisateur — iOS
   // Safari annule Quick Look si le moindre await le précède.
-  preloadArModel(url);
+  preloadArModel(glbUrl, usdzUrl);
 }
 
 function showArToast(msg, autoHideMs){
@@ -557,18 +559,33 @@ function showArToast(msg, autoHideMs){
 }
 function hideArToast(){ $('#arToast').hidden = true; }
 
-function preloadArModel(glbUrl){
-  if (arModelUrl === glbUrl) return;   // déjà (pré)chargé
-  arModelUrl = glbUrl;
+function preloadArModel(glbUrl, usdzUrl){
+  const key = glbUrl + '|' + usdzUrl;
+  if (arModelKey === key) return;   // déjà (pré)chargé
+  arModelKey = key;
   arViewer.setAttribute('reveal', 'manual'); // ne rend rien à l'écran
-  arViewer.src = glbUrl;
-  arViewer.addEventListener('error', () => {
-    if (arViewer.src === glbUrl) arModelUrl = null;
-    console.warn('ar: échec de chargement du modèle', glbUrl);
-  }, { once:true });
+
+  // Deux moteurs AR, deux formats :
+  // - Android (WebXR / Scene Viewer) lit le glTF binaire → src
+  // - iOS (AR Quick Look) ne lit que l'USDZ → ios-src
+  // Sans ios-src, Quick Look retombe sur la visionneuse "Objet" au
+  // lieu de s'ouvrir directement en mode caméra AR.
+  if (usdzUrl) arViewer.setAttribute('ios-src', usdzUrl);
+  else arViewer.removeAttribute('ios-src');
+
+  if (glbUrl){
+    arViewer.src = glbUrl;
+    arViewer.addEventListener('error', () => {
+      if (arViewer.src === glbUrl) arModelKey = null;
+      console.warn('ar: échec de chargement du modèle glb', glbUrl);
+    }, { once:true });
+  } else {
+    // pas de .glb : uniquement utilisable en Quick Look sur iOS
+    arViewer.removeAttribute('src');
+  }
 }
 
-function launchAr(glbUrl){
+function launchAr(glbUrl, usdzUrl){
   const t = I18N[lang];
 
   if (navigator.vibrate) navigator.vibrate(10);
@@ -651,7 +668,7 @@ function youtubeId(url){
 function backToCamera(){
   closeStep();
   stepsPlaceId = null;
-  arModelUrl = null;
+  arModelKey = null;
   $('#tube').src = '';
   show('cam');
   setTimeout(reset, 220);
