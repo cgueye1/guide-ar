@@ -705,6 +705,22 @@ function backToCamera(){
   $('#tube').src = '';
   show('cam');
   setTimeout(reset, 220);
+
+  // Sur iOS, l'ouverture d'AR Quick Look (une app native distincte)
+  // suspend le flux getUserMedia de la page. Au retour, le <video> peut
+  // rester figé sur une image noire même si `stream` semble toujours
+  // vivant côté JS. On vérifie l'état réel des pistes et on relance
+  // la caméra si besoin.
+  ensureCameraAlive();
+}
+
+function ensureCameraAlive(){
+  const trackAlive = stream && stream.getVideoTracks().some(t => t.readyState === 'live');
+  if (!trackAlive){
+    startCamera();
+  } else if (el.video.paused){
+    el.video.play().catch(() => startCamera());
+  }
 }
 
 
@@ -757,8 +773,8 @@ function init(){
   document.addEventListener('visibilitychange', () => {
     if (document.hidden){
       stopCamera();
-    } else if (el.screens.cam.classList.contains('is-active') && !stream){
-      startCamera();
+    } else if (el.screens.cam.classList.contains('is-active')){
+      ensureCameraAlive();
     }
   });
 
