@@ -568,9 +568,7 @@ function preloadArModel(glbUrl, usdzUrl){
   // Deux moteurs AR, deux formats :
   // - Android (WebXR / Scene Viewer) lit le glTF binaire → src
   // - iOS (AR Quick Look) ne lit que l'USDZ → ios-src
-  // Sans ios-src, Quick Look retombe sur la visionneuse "Objet" au
-  // lieu de s'ouvrir directement en mode caméra AR.
-  if (usdzUrl) arViewer.setAttribute('ios-src', usdzUrl);
+  if (usdzUrl) loadUsdzAsBlobUrl(usdzUrl, key);
   else arViewer.removeAttribute('ios-src');
 
   if (glbUrl){
@@ -582,6 +580,40 @@ function preloadArModel(glbUrl, usdzUrl){
   } else {
     // pas de .glb : uniquement utilisable en Quick Look sur iOS
     arViewer.removeAttribute('src');
+  }
+}
+
+/* Contournement d'un problème serveur fréquent : de nombreux serveurs
+   servent les .usdz avec le Content-Type générique application/octet-stream
+   au lieu de model/vnd.usdz+zip. Sans le bon type MIME, iOS ne reconnaît
+   pas le fichier comme un objet AR et Quick Look s'ouvre en mode "Objet"
+   plutôt qu'en mode caméra AR.
+   On télécharge le fichier nous-mêmes, on le ré-enveloppe dans un Blob
+   avec le type MIME correct, et on pointe ios-src vers cette URL locale
+   (blob:) — c'est nous qui décidons alors du Content-Type, indépendamment
+   de ce que renvoie le serveur distant. */
+let usdzBlobUrl = null;   // révoqué à chaque nouveau modèle pour éviter les fuites mémoire
+
+async function loadUsdzAsBlobUrl(usdzUrl, expectedKey){
+  try {
+    const res = await fetch(usdzUrl);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const bytes = await res.arrayBuffer();
+
+    // le modèle a changé entre-temps (navigation rapide entre étapes) : on abandonne
+    if (arModelKey !== expectedKey) return;
+
+    const blob = new Blob([bytes], { type: 'model/vnd.usdz+zip' });
+
+    if (usdzBlobUrl) URL.revokeObjectURL(usdzBlobUrl);
+    usdzBlobUrl = URL.createObjectURL(blob);
+
+    arViewer.setAttribute('ios-src', usdzBlobUrl);
+  } catch (err) {
+    console.warn('ar: échec de chargement du modèle usdz', usdzUrl, err);
+    // repli : on tente quand même le lien direct, au cas où le
+    // problème ne venait pas du Content-Type
+    arViewer.setAttribute('ios-src', usdzUrl);
   }
 }
 
@@ -669,6 +701,7 @@ function backToCamera(){
   closeStep();
   stepsPlaceId = null;
   arModelKey = null;
+  if (usdzBlobUrl){ URL.revokeObjectURL(usdzBlobUrl); usdzBlobUrl = null; }
   $('#tube').src = '';
   show('cam');
   setTimeout(reset, 220);
