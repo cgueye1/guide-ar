@@ -501,6 +501,8 @@ function paintStep(){
   $('#stepPrev').disabled = (stepIdx === 0);
   $('#stepNext').disabled = (stepIdx === steps.length - 1);
 
+  paintArButton(s);
+
   const sc = document.querySelector('.modal__scroll');
   if (sc) sc.scrollTop = 0;
 }
@@ -509,6 +511,109 @@ function closeStep(){
   $('#stepTube').src = '';
   $('#stepModal').hidden = true;
   document.body.style.overflow = '';
+}
+
+
+/* ═════════════════════════════════════════════════════════════
+   RÉALITÉ AUGMENTÉE
+   model-viewer gère le rendu WebXR (hit-test réel, ancrage sol)
+   sur Android et AR Quick Look sur iOS — deux moteurs AR natifs,
+   au lieu d'un moteur maison, pour de meilleures performances
+   et une meilleure compatibilité.
+   ═══════════════════════════════════════════════════════════ */
+
+const arViewer   = $('#arViewer');
+const arTrigger  = $('#arTrigger');
+let   arModelUrl = null;   // évite de recharger le même .glb
+
+function paintArButton(step){
+  const btn = $('#stepArBtn');
+  const url = (step && step.glbFileUrl || '').trim();
+
+  if (!url){
+    btn.hidden = true;
+    btn.onclick = null;
+    return;
+  }
+
+  btn.hidden = false;
+  btn.disabled = false;
+  btn.onclick = () => launchAr(url);
+}
+
+function showArToast(msg, autoHideMs){
+  const t = $('#arToast');
+  $('#arToastMsg').textContent = msg;
+  t.hidden = false;
+  clearTimeout(showArToast._t);
+  if (autoHideMs){
+    showArToast._t = setTimeout(() => { t.hidden = true; }, autoHideMs);
+  }
+}
+function hideArToast(){ $('#arToast').hidden = true; }
+
+async function launchAr(glbUrl){
+  const t = I18N[lang];
+  const btn = $('#stepArBtn');
+
+  // le device/navigateur ne propose ni WebXR ni Quick Look ni Scene Viewer
+  const supported = arViewer.canActivateAR;
+  if (supported === false){
+    showArToast(t.arNotSupported, 2600);
+    return;
+  }
+
+  btn.disabled = true;
+  if (navigator.vibrate) navigator.vibrate(10);
+
+  try {
+    // (re)charge le modèle seulement si nécessaire — perf : pas de
+    // téléchargement au moment de l'ouverture de l'étape, seulement au tap.
+    if (arModelUrl !== glbUrl){
+      showArToast(t.arLoading);
+      await new Promise((resolve, reject) => {
+        const onLoad = () => { cleanup(); resolve(); };
+        const onErr  = (e) => { cleanup(); reject(e); };
+        function cleanup(){
+          arViewer.removeEventListener('load', onLoad);
+          arViewer.removeEventListener('error', onErr);
+        }
+        arViewer.addEventListener('load', onLoad, { once:true });
+        arViewer.addEventListener('error', onErr, { once:true });
+        arViewer.src = glbUrl;
+      });
+      arModelUrl = glbUrl;
+    }
+
+    hideArToast();
+
+    // écoute le statut de la session AR pour guider l'utilisateur
+    // pendant la recherche de surface / l'ancrage au sol
+    const onArStatus = (ev) => {
+      switch (ev.detail.status){
+        case 'session-started':
+          showArToast(t.arAimFloor);
+          break;
+        case 'object-placed':
+          showArToast(t.arPlaced, 1400);
+          break;
+        case 'not-presenting':
+          hideArToast();
+          arViewer.removeEventListener('ar-status', onArStatus);
+          break;
+      }
+    };
+    arViewer.addEventListener('ar-status', onArStatus);
+
+    arTrigger.click();   // déclenche le flux AR natif (hit-test + ancrage)
+
+  } catch (err) {
+    console.warn('ar:', err);
+    showArToast(t.arLoadError, 2600);
+    arModelUrl = null;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function goStep(delta){
@@ -556,6 +661,7 @@ function youtubeId(url){
 function backToCamera(){
   closeStep();
   stepsPlaceId = null;
+  arModelUrl = null;
   $('#tube').src = '';
   show('cam');
   setTimeout(reset, 220);

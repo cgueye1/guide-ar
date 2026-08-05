@@ -26,6 +26,15 @@ const I18N = {
     next:       "Suivant",
     watch:      "Vidéo",
 
+    /* ── réalité augmentée ── */
+    viewAr:      "Voir en réalité augmentée",
+    arNotSupported: "La RA n'est pas prise en charge sur cet appareil",
+    arLoading:   "Chargement du modèle 3D…",
+    arLoadError: "Impossible de charger le modèle 3D",
+    arAimFloor:  "Déplacez votre téléphone pour repérer le sol",
+    arTapPlace:  "Appuyez à l'endroit où poser l'objet",
+    arPlaced:    "Objet placé",
+
     /* ── reconnu mais trop loin ── */
     farTitle:  "Vous êtes trop loin",
     farUnit:   "km",
@@ -70,6 +79,15 @@ const I18N = {
     prev:       "Previous",
     next:       "Next",
     watch:      "Video",
+
+    /* ── augmented reality ── */
+    viewAr:      "View in augmented reality",
+    arNotSupported: "AR isn't supported on this device",
+    arLoading:   "Loading 3D model…",
+    arLoadError: "Couldn't load the 3D model",
+    arAimFloor:  "Move your phone to find the floor",
+    arTapPlace:  "Tap where you'd like to place it",
+    arPlaced:    "Object placed",
 
     farTitle:  "You're too far away",
     farUnit:   "km",
