@@ -550,10 +550,10 @@ function paintArButton(step){
 
   btn.hidden = false;
   btn.disabled = false;
-  btn.onclick = () => launchAr(glbUrl, usdzUrl);
+  btn.onclick = IS_IOS ? launchArQuickLook : () => launchAr(glbUrl, usdzUrl);
 
   // précharge le modèle en tâche de fond dès que le bouton apparaît :
-  // au moment du tap, activateAR() doit s'exécuter en tout premier,
+  // au moment du tap, le lancement doit s'exécuter en tout premier,
   // de façon parfaitement synchrone avec le geste utilisateur — iOS
   // Safari annule Quick Look si le moindre await le précède.
   preloadArModel(glbUrl, usdzUrl);
@@ -574,22 +574,17 @@ function preloadArModel(glbUrl, usdzUrl){
   const key = glbUrl + '|' + usdzUrl;
   if (arModelKey === key) return;   // déjà (pré)chargé
   arModelKey = key;
-  arViewer.setAttribute('reveal', 'manual'); // ne rend rien à l'écran
 
-  // Deux moteurs AR, deux formats :
-  // - Android (WebXR / Scene Viewer) lit le glTF binaire → src
-  // - iOS (AR Quick Look) ne lit que l'USDZ → ios-src
-  //
-  // ios-src est posé tout de suite avec l'URL distante : si l'attribut
-  // est absent au moment du tap, model-viewer convertit lui-même le GLB
-  // en USDZ (prepareUSDZ) et notre vrai modèle est ignoré. Le blob au
-  // bon type MIME viendra le remplacer dès qu'il sera téléchargé.
-  if (usdzUrl){
-    arViewer.setAttribute('ios-src', usdzUrl);
-    loadUsdzAsBlobUrl(usdzUrl, key);
-  } else {
-    arViewer.removeAttribute('ios-src');
+  // Sur iOS on ouvre AR Quick Look nous-mêmes (voir launchArQuickLook) :
+  // ni model-viewer ni le GLB ne servent, autant ne pas les télécharger.
+  if (IS_IOS){
+    arUsdzHref = usdzUrl;      // utilisable dès maintenant, sans attendre
+    prepareUsdzHref(usdzUrl, key);
+    return;
   }
+
+  arViewer.setAttribute('reveal', 'manual'); // ne rend rien à l'écran
+  arViewer.removeAttribute('ios-src');
 
   if (glbUrl){
     arViewer.src = glbUrl;
@@ -598,43 +593,71 @@ function preloadArModel(glbUrl, usdzUrl){
       console.warn('ar: échec de chargement du modèle glb', glbUrl);
     }, { once:true });
   } else {
-    // pas de .glb : uniquement utilisable en Quick Look sur iOS
     arViewer.removeAttribute('src');
   }
 }
 
-/* Contournement d'un problème serveur fréquent : de nombreux serveurs
-   servent les .usdz avec le Content-Type générique application/octet-stream
-   au lieu de model/vnd.usdz+zip. Sans le bon type MIME, iOS ne reconnaît
-   pas le fichier comme un objet AR et Quick Look s'ouvre en mode "Objet"
-   plutôt qu'en mode caméra AR.
-   On télécharge le fichier nous-mêmes, on le ré-enveloppe dans un Blob
-   avec le type MIME correct, et on pointe ios-src vers cette URL locale
-   (blob:) — c'est nous qui décidons alors du Content-Type, indépendamment
-   de ce que renvoie le serveur distant. */
-let usdzBlobUrl = null;   // révoqué à chaque nouveau modèle pour éviter les fuites mémoire
+/* ── iOS : AR Quick Look ──────────────────────────────────────
+   On n'utilise pas activateAR() de model-viewer ici. Quand ios-src est
+   fourni, model-viewer ouvre son lien SANS attribut « download » ; une
+   URL blob: n'ayant ni nom ni extension, Quick Look ne reconnaît alors
+   pas un contenu RA et s'ouvre en mode « Objet ». En construisant le
+   lien nous-mêmes on garde la main sur les trois conditions du mode RA
+   direct de WebKit : rel="ar", un enfant <img>, et un nom de fichier.
 
-async function loadUsdzAsBlobUrl(usdzUrl, expectedKey){
+   Le type MIME reste important : servi en application/octet-stream, le
+   .usdz peut être téléchargé au lieu d'être ouvert. On ne le réécrit en
+   Blob que si le serveur se trompe — sinon on garde l'URL distante, ce
+   qui évite de télécharger le modèle deux fois en données mobiles. */
+const USDZ_MIME = 'model/vnd.usdz+zip';
+
+let arUsdzHref  = '';     // href réellement passé à Quick Look
+let usdzBlobUrl = null;   // révoqué à chaque nouveau modèle (fuites mémoire)
+
+async function prepareUsdzHref(usdzUrl, expectedKey){
   try {
+    const head = await fetch(usdzUrl, { method:'HEAD' });
+    const type = (head.headers.get('content-type') || '').toLowerCase();
+    if (arModelKey !== expectedKey) return;          // étape changée entre-temps
+    if (type.startsWith(USDZ_MIME)) return;          // rien à corriger
+
     const res = await fetch(usdzUrl);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const bytes = await res.arrayBuffer();
-
-    // le modèle a changé entre-temps (navigation rapide entre étapes) : on abandonne
     if (arModelKey !== expectedKey) return;
 
-    const blob = new Blob([bytes], { type: 'model/vnd.usdz+zip' });
-
     if (usdzBlobUrl) URL.revokeObjectURL(usdzBlobUrl);
-    usdzBlobUrl = URL.createObjectURL(blob);
-
-    arViewer.setAttribute('ios-src', usdzBlobUrl);
+    usdzBlobUrl = URL.createObjectURL(new Blob([bytes], { type: USDZ_MIME }));
+    arUsdzHref  = usdzBlobUrl;
   } catch (err) {
-    console.warn('ar: échec de chargement du modèle usdz', usdzUrl, err);
-    // repli : on tente quand même le lien direct, au cas où le
-    // problème ne venait pas du Content-Type
-    arViewer.setAttribute('ios-src', usdzUrl);
+    // HEAD refusé (CORS) ou téléchargement échoué : on garde l'URL
+    // distante, dont l'extension .usdz suffit le plus souvent.
+    console.warn('ar: type MIME du .usdz non vérifiable', usdzUrl, err);
   }
+}
+
+function launchArQuickLook(){
+  const t = I18N[lang];
+
+  if (navigator.vibrate) navigator.vibrate(10);
+  if (!arUsdzHref){ showArToast(t.arLoadError, 2600); return; }
+
+  // ar-scale="fixed" côté model-viewer ⇒ même consigne pour Quick Look
+  const href = arUsdzHref + (arUsdzHref.includes('#') ? '&' : '#')
+             + 'allowsContentScaling=0';
+
+  const a = document.createElement('a');
+  a.rel = 'ar';
+  a.href = href;
+  // donne un nom et une extension à Quick Look : indispensable avec une
+  // URL blob:, inoffensif avec une URL distante.
+  a.setAttribute('download', 'model.usdz');
+  a.appendChild(document.createElement('img')); // exigé par WebKit
+  a.style.display = 'none';
+
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 function launchAr(glbUrl, usdzUrl){
@@ -722,6 +745,7 @@ function backToCamera(){
   stepsPlaceId = null;
   arModelKey = null;
   if (usdzBlobUrl){ URL.revokeObjectURL(usdzBlobUrl); usdzBlobUrl = null; }
+  arUsdzHref = '';   // ne pas garder un blob révoqué comme cible Quick Look
   $('#tube').src = '';
   show('cam');
   setTimeout(reset, 220);
