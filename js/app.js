@@ -523,7 +523,6 @@ function closeStep(){
    ═══════════════════════════════════════════════════════════ */
 
 const arViewer   = $('#arViewer');
-const arTrigger  = $('#arTrigger');
 let   arModelUrl = null;   // évite de recharger le même .glb
 
 function paintArButton(step){
@@ -539,6 +538,12 @@ function paintArButton(step){
   btn.hidden = false;
   btn.disabled = false;
   btn.onclick = () => launchAr(url);
+
+  // précharge le .glb en tâche de fond dès que le bouton apparaît :
+  // au moment du tap, activateAR() doit s'exécuter en tout premier,
+  // de façon parfaitement synchrone avec le geste utilisateur — iOS
+  // Safari annule Quick Look si le moindre await le précède.
+  preloadArModel(url);
 }
 
 function showArToast(msg, autoHideMs){
@@ -552,67 +557,52 @@ function showArToast(msg, autoHideMs){
 }
 function hideArToast(){ $('#arToast').hidden = true; }
 
-async function launchAr(glbUrl){
+function preloadArModel(glbUrl){
+  if (arModelUrl === glbUrl) return;   // déjà (pré)chargé
+  arModelUrl = glbUrl;
+  arViewer.setAttribute('reveal', 'manual'); // ne rend rien à l'écran
+  arViewer.src = glbUrl;
+  arViewer.addEventListener('error', () => {
+    if (arViewer.src === glbUrl) arModelUrl = null;
+    console.warn('ar: échec de chargement du modèle', glbUrl);
+  }, { once:true });
+}
+
+function launchAr(glbUrl){
   const t = I18N[lang];
-  const btn = $('#stepArBtn');
 
-  // le device/navigateur ne propose ni WebXR ni Quick Look ni Scene Viewer
-  const supported = arViewer.canActivateAR;
-  if (supported === false){
-    showArToast(t.arNotSupported, 2600);
-    return;
-  }
-
-  btn.disabled = true;
   if (navigator.vibrate) navigator.vibrate(10);
 
-  try {
-    // (re)charge le modèle seulement si nécessaire — perf : pas de
-    // téléchargement au moment de l'ouverture de l'étape, seulement au tap.
-    if (arModelUrl !== glbUrl){
-      showArToast(t.arLoading);
-      await new Promise((resolve, reject) => {
-        const onLoad = () => { cleanup(); resolve(); };
-        const onErr  = (e) => { cleanup(); reject(e); };
-        function cleanup(){
-          arViewer.removeEventListener('load', onLoad);
-          arViewer.removeEventListener('error', onErr);
-        }
-        arViewer.addEventListener('load', onLoad, { once:true });
-        arViewer.addEventListener('error', onErr, { once:true });
-        arViewer.src = glbUrl;
-      });
-      arModelUrl = glbUrl;
+  // écoute le statut de la session AR pour guider l'utilisateur
+  // pendant la recherche de surface / l'ancrage au sol
+  const onArStatus = (ev) => {
+    switch (ev.detail.status){
+      case 'session-started':
+        showArToast(t.arAimFloor);
+        break;
+      case 'object-placed':
+        showArToast(t.arPlaced, 1400);
+        break;
+      case 'not-presenting':
+      case 'failed':
+        hideArToast();
+        arViewer.removeEventListener('ar-status', onArStatus);
+        if (ev.detail.status === 'failed') showArToast(t.arLoadError, 2600);
+        break;
     }
+  };
+  arViewer.addEventListener('ar-status', onArStatus);
 
-    hideArToast();
-
-    // écoute le statut de la session AR pour guider l'utilisateur
-    // pendant la recherche de surface / l'ancrage au sol
-    const onArStatus = (ev) => {
-      switch (ev.detail.status){
-        case 'session-started':
-          showArToast(t.arAimFloor);
-          break;
-        case 'object-placed':
-          showArToast(t.arPlaced, 1400);
-          break;
-        case 'not-presenting':
-          hideArToast();
-          arViewer.removeEventListener('ar-status', onArStatus);
-          break;
-      }
-    };
-    arViewer.addEventListener('ar-status', onArStatus);
-
-    arTrigger.click();   // déclenche le flux AR natif (hit-test + ancrage)
-
-  } catch (err) {
-    console.warn('ar:', err);
-    showArToast(t.arLoadError, 2600);
-    arModelUrl = null;
-  } finally {
-    btn.disabled = false;
+  // Appel synchrone, dans le même tick que le clic : c'est ce qui permet
+  // à iOS Safari de reconnaître un vrai geste utilisateur et d'ouvrir
+  // Quick Look. model-viewer gère lui-même l'attente si le .glb n'est
+  // pas encore totalement chargé.
+  const result = arViewer.activateAR();
+  if (result && typeof result.catch === 'function'){
+    result.catch(err => {
+      console.warn('ar:', err);
+      showArToast(t.arNotSupported, 2600);
+    });
   }
 }
 
