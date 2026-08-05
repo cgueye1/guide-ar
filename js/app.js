@@ -525,13 +525,24 @@ function closeStep(){
 const arViewer   = $('#arViewer');
 let   arModelKey = null;   // évite de recharger le même couple glb/usdz
 
+/* Même détection que model-viewer, pour que notre décision d'afficher le
+   bouton corresponde exactement au moteur qui sera réellement utilisé.
+   iPadOS 13+ s'annonce comme un Mac : d'où le test sur maxTouchPoints. */
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !self.MSStream
+            || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+
 function paintArButton(step){
   const btn = $('#stepArBtn');
   const glbUrl  = (step && step.glbFileUrl  || '').trim();
   const usdzUrl = (step && step.usdzFileUrl || '').trim();
 
-  // le bouton n'apparaît que si au moins un des deux formats existe
-  if (!glbUrl && !usdzUrl){
+  // Chaque moteur AR n'accepte qu'un seul format, on n'affiche donc le
+  // bouton que si le format de la plateforme est réellement disponible :
+  // - iOS : AR Quick Look exige l'USDZ. Sans lui, model-viewer
+  //   convertirait le GLB de son côté (échelle et rendu non maîtrisés).
+  // - Android : WebXR et Scene Viewer exigent le GLB, l'USDZ seul est
+  //   inutilisable.
+  if (IS_IOS ? !usdzUrl : !glbUrl){
     btn.hidden = true;
     btn.onclick = null;
     return;
@@ -568,8 +579,17 @@ function preloadArModel(glbUrl, usdzUrl){
   // Deux moteurs AR, deux formats :
   // - Android (WebXR / Scene Viewer) lit le glTF binaire → src
   // - iOS (AR Quick Look) ne lit que l'USDZ → ios-src
-  if (usdzUrl) loadUsdzAsBlobUrl(usdzUrl, key);
-  else arViewer.removeAttribute('ios-src');
+  //
+  // ios-src est posé tout de suite avec l'URL distante : si l'attribut
+  // est absent au moment du tap, model-viewer convertit lui-même le GLB
+  // en USDZ (prepareUSDZ) et notre vrai modèle est ignoré. Le blob au
+  // bon type MIME viendra le remplacer dès qu'il sera téléchargé.
+  if (usdzUrl){
+    arViewer.setAttribute('ios-src', usdzUrl);
+    loadUsdzAsBlobUrl(usdzUrl, key);
+  } else {
+    arViewer.removeAttribute('ios-src');
+  }
 
   if (glbUrl){
     arViewer.src = glbUrl;
