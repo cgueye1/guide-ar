@@ -141,8 +141,19 @@ function askGeo(){
    Caméra
    ───────────────────────────────────────────── */
 
+let camStarting = false;
+
 async function startCamera(){
+  if (camStarting) return;        // deux getUserMedia simultanés = image noire
+  camStarting = true;
   el.camfail.hidden = true;
+
+  // Toujours libérer le capteur avant de le redemander : sur iOS, un flux
+  // précédent encore ouvert fait renvoyer une piste qui ne délivre aucune
+  // image. #camretry et les reprises de page appellent cette fonction
+  // plusieurs fois, elle doit rester idempotente.
+  stopCamera();
+
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: {
@@ -159,11 +170,15 @@ async function startCamera(){
     console.error('camera:', err);
     el.camfail.hidden = false;
     el.trigger.disabled = true;
+  } finally {
+    camStarting = false;
   }
 }
 
 function stopCamera(){
   if (stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+  // sans cela le <video> conserve sa dernière image — noire — au retour
+  if (el.video.srcObject) el.video.srcObject = null;
 }
 
 
@@ -578,7 +593,7 @@ function preloadArModel(glbUrl, usdzUrl){
   // Sur iOS on ouvre AR Quick Look nous-mêmes (voir launchArQuickLook) :
   // ni model-viewer ni le GLB ne servent, autant ne pas les télécharger.
   if (IS_IOS){
-    arUsdzHref = usdzUrl;      // utilisable dès maintenant, sans attendre
+    arUsdzHref = '';           // renseigné par prepareUsdzHref
     prepareUsdzHref(usdzUrl, key);
     return;
   }
@@ -605,13 +620,17 @@ function preloadArModel(glbUrl, usdzUrl){
    lien nous-mêmes on garde la main sur les trois conditions du mode RA
    direct de WebKit : rel="ar", un enfant <img>, et un nom de fichier.
 
-   Le type MIME reste important : servi en application/octet-stream, le
-   .usdz peut être téléchargé au lieu d'être ouvert. On ne le réécrit en
-   Blob que si le serveur se trompe — sinon on garde l'URL distante, ce
-   qui évite de télécharger le modèle deux fois en données mobiles. */
+   Le type MIME est déterminant pour le MODE d'ouverture. La doc WebKit
+   est explicite : « For Safari to recognize AR content it must be served
+   over HTTP with the appropriate MIME-type. Safari is looking for
+   model/vnd.usdz+zip. » Servi en application/octet-stream, le fichier
+   n'est pas reconnu comme contenu RA et Quick Look s'ouvre en mode
+   « Objet ». On vérifie donc le type avant d'utiliser l'URL distante, et
+   on ré-enveloppe le fichier dans un Blob au bon type si le serveur se
+   trompe. Quand le serveur est correct, aucun téléchargement en double. */
 const USDZ_MIME = 'model/vnd.usdz+zip';
 
-let arUsdzHref  = '';     // href réellement passé à Quick Look
+let arUsdzHref  = '';     // href passé à Quick Look ; '' = pas encore prêt
 let usdzBlobUrl = null;   // révoqué à chaque nouveau modèle (fuites mémoire)
 
 async function prepareUsdzHref(usdzUrl, expectedKey){
@@ -619,8 +638,13 @@ async function prepareUsdzHref(usdzUrl, expectedKey){
     const head = await fetch(usdzUrl, { method:'HEAD' });
     const type = (head.headers.get('content-type') || '').toLowerCase();
     if (arModelKey !== expectedKey) return;          // étape changée entre-temps
-    if (type.startsWith(USDZ_MIME)) return;          // rien à corriger
 
+    // type correct : l'URL distante s'ouvrira directement en mode RA
+    if (type.startsWith(USDZ_MIME)){ arUsdzHref = usdzUrl; return; }
+
+    // type incorrect : on préfère faire attendre le téléchargement plutôt
+    // que d'ouvrir un aperçu « Objet » dégradé
+    console.warn(`ar: .usdz servi en "${type}" au lieu de ${USDZ_MIME}`);
     const res = await fetch(usdzUrl);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const bytes = await res.arrayBuffer();
@@ -630,9 +654,10 @@ async function prepareUsdzHref(usdzUrl, expectedKey){
     usdzBlobUrl = URL.createObjectURL(new Blob([bytes], { type: USDZ_MIME }));
     arUsdzHref  = usdzBlobUrl;
   } catch (err) {
-    // HEAD refusé (CORS) ou téléchargement échoué : on garde l'URL
-    // distante, dont l'extension .usdz suffit le plus souvent.
+    // vérification impossible (CORS) ou téléchargement échoué : on tente
+    // l'URL distante telle quelle, au moins le modèle sera visible
     console.warn('ar: type MIME du .usdz non vérifiable', usdzUrl, err);
+    if (arModelKey === expectedKey) arUsdzHref = usdzUrl;
   }
 }
 
@@ -640,7 +665,13 @@ function launchArQuickLook(){
   const t = I18N[lang];
 
   if (navigator.vibrate) navigator.vibrate(10);
-  if (!arUsdzHref){ showArToast(t.arLoadError, 2600); return; }
+
+  // modèle pas encore prêt : on ne lance rien, un tap plus tard suffira
+  if (!arUsdzHref){ showArToast(t.arLoading, 2600); return; }
+
+  // AR Quick Look va prendre le capteur : on le libère pour ARKit,
+  // sinon iOS peut ne plus délivrer aucune image au retour dans la page.
+  stopCamera();
 
   // ar-scale="fixed" côté model-viewer ⇒ même consigne pour Quick Look
   const href = arUsdzHref + (arUsdzHref.includes('#') ? '&' : '#')
@@ -649,10 +680,15 @@ function launchArQuickLook(){
   const a = document.createElement('a');
   a.rel = 'ar';
   a.href = href;
-  // donne un nom et une extension à Quick Look : indispensable avec une
-  // URL blob:, inoffensif avec une URL distante.
-  a.setAttribute('download', 'model.usdz');
-  a.appendChild(document.createElement('img')); // exigé par WebKit
+
+  // Une URL blob: n'a ni nom ni extension : « download » est le seul moyen
+  // d'en donner un à Quick Look. Sur une URL distante en .usdz on s'abstient,
+  // pour rester sur la forme documentée par Apple.
+  if (arUsdzHref.startsWith('blob:')) a.setAttribute('download', 'model.usdz');
+
+  // WebKit n'ouvre en mode RA direct que si le PREMIER enfant du lien est
+  // un <img> ou un <picture> : sans lui, on obtient l'aperçu fichier.
+  a.appendChild(document.createElement('img'));
   a.style.display = 'none';
 
   document.body.appendChild(a);
@@ -758,13 +794,26 @@ function backToCamera(){
   ensureCameraAlive();
 }
 
+/* Quand une app native prend le capteur — c'est le cas d'AR Quick Look —
+   iOS ne termine pas la piste vidéo : il la passe en « muted ». Son
+   readyState reste 'live' et le <video> n'est pas en pause, seule l'image
+   est noire. Une vérification sur le seul readyState conclurait donc à
+   tort que la caméra est vivante et ne relancerait jamais rien. */
+function cameraIsLive(){
+  const t = stream && stream.getVideoTracks()[0];
+  return !!t && t.readyState === 'live' && !t.muted;
+}
+
 function ensureCameraAlive(){
-  const trackAlive = stream && stream.getVideoTracks().some(t => t.readyState === 'live');
-  if (!trackAlive){
+  if (!cameraIsLive()){
     startCamera();
   } else if (el.video.paused){
     el.video.play().catch(() => startCamera());
   }
+}
+
+function onPageResume(){
+  if (el.screens.cam.classList.contains('is-active')) ensureCameraAlive();
 }
 
 
@@ -815,12 +864,27 @@ function init(){
   });
 
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden){
-      stopCamera();
-    } else if (el.screens.cam.classList.contains('is-active')){
-      ensureCameraAlive();
-    }
+    if (document.hidden) stopCamera();
+    else onPageResume();
   });
+
+  // AR Quick Look s'affiche comme un calque natif au-dessus de la page :
+  // iOS ne déclenche pas toujours visibilitychange en s'ouvrant ni en se
+  // fermant. On se raccroche donc aussi au retour du focus.
+  window.addEventListener('focus', onPageResume);
+
+  // Retour arrière depuis le cache de navigation (bfcache) : la page est
+  // restaurée telle quelle, avec un flux caméra mort et aucun rechargement
+  // du script. Sans ce gestionnaire, l'écran reste noir même après un
+  // rafraîchissement, puisque c'est l'état restauré qui est réaffiché.
+  window.addEventListener('pageshow', e => {
+    if (e.persisted) stopCamera();
+    onPageResume();
+  });
+
+  // libère le capteur en quittant la page, pour que la prochaine
+  // ouverture — ou la page restaurée — puisse le réacquérir
+  window.addEventListener('pagehide', stopCamera);
 
   const saved = readStore(STORE);
   if (saved){
