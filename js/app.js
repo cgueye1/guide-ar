@@ -527,6 +527,7 @@ function closeStep(){
   $('#stepModal').hidden = true;
   document.body.style.overflow = '';
   hideArLoader();   // annule une attente d'ouverture AR en cours
+  stopArAudio();
 }
 
 
@@ -549,8 +550,9 @@ const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !self.MSStream
 
 function paintArButton(step){
   const btn = $('#stepArBtn');
-  const glbUrl  = (step && step.glbFileUrl  || '').trim();
-  const usdzUrl = (step && step.usdzFileUrl || '').trim();
+  const glbUrl   = (step && step.glbFileUrl   || '').trim();
+  const usdzUrl  = (step && step.usdzFileUrl  || '').trim();
+  const audioUrl = (step && step.audioFileUrl || '').trim();
 
   // Chaque moteur AR n'accepte qu'un seul format, on n'affiche donc le
   // bouton que si le format de la plateforme est réellement disponible :
@@ -561,12 +563,18 @@ function paintArButton(step){
   if (IS_IOS ? !usdzUrl : !glbUrl){
     btn.hidden = true;
     btn.onclick = null;
+    loadArAudio('');
     return;
   }
 
   btn.hidden = false;
   btn.disabled = false;
   btn.onclick = IS_IOS ? launchArQuickLook : () => launchAr(glbUrl, usdzUrl);
+
+  // AR Quick Look est une app native : la page n'y reçoit aucun événement
+  // de pose, on ne saurait donc pas quand déclencher le son. Inutile de
+  // télécharger le mp3 sur iOS.
+  loadArAudio(IS_IOS ? '' : audioUrl);
 
   // précharge le modèle en tâche de fond dès que le bouton apparaît :
   // au moment du tap, le lancement doit s'exécuter en tout premier,
@@ -705,6 +713,33 @@ function arUsdzReady(href, expectedKey){
   }
 }
 
+/* ── son de la scène AR ───────────────────────────────────────
+   Déclenché au moment où le modèle est posé dans le monde réel, et
+   uniquement à ce moment : c'est ce que signale « object-placed ». Le son
+   est préchargé dès l'apparition du bouton pour démarrer sans latence. */
+let arAudio = null;
+
+function loadArAudio(url){
+  stopArAudio();
+  if (!url){ arAudio = null; return; }
+  arAudio = new Audio(url);
+  arAudio.preload = 'auto';
+}
+
+function playArAudio(){
+  if (!arAudio) return;
+  // le tap sur le bouton RA vaut activation utilisateur : la lecture est
+  // autorisée, mais on trace le refus éventuel plutôt que de l'ignorer
+  arAudio.play().catch(err => console.warn('ar: lecture audio refusée', err));
+}
+
+function stopArAudio(){
+  if (!arAudio) return;
+  arAudio.pause();
+  try { arAudio.currentTime = 0; } catch { /* métadonnées pas encore lues */ }
+}
+
+
 /* ── loader de préparation ───────────────────────────────────── */
 
 let arPendingLaunch = false;   // l'utilisateur attend devant le loader
@@ -809,10 +844,12 @@ function launchAr(glbUrl, usdzUrl){
         showArToast(t.arAimFloor);
         break;
       case 'object-placed':
+        playArAudio();
         showArToast(t.arPlaced, 1400);
         break;
       case 'not-presenting':
       case 'failed':
+        stopArAudio();
         hideArLoader();
         hideArToast();
         arViewer.removeEventListener('ar-status', onArStatus);
