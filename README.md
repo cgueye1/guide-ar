@@ -133,6 +133,36 @@ qu'à une seule origine.
 
 ---
 
+## Son de la scène en réalité augmentée
+
+`audioFileUrl` est joué **au moment où le modèle est posé** dans le monde
+réel. Le mécanisme diffère selon la plateforme, parce que les deux moteurs
+AR n'offrent pas les mêmes prises :
+
+| Plateforme | Moteur | Qui joue le son |
+|---|---|---|
+| Android | WebXR | la page, sur l'événement `object-placed` |
+| Android | Scene Viewer | Scene Viewer, via le paramètre `sound` de l'intent |
+| iOS | AR Quick Look | le `.usdz` lui-même |
+
+Sur iOS, la page ne peut rien faire : Quick Look est une app native qui ne
+publie aucun événement de pose, et sa session audio ARKit interrompt celle
+du navigateur. Le son doit donc être **embarqué dans le `.usdz`** :
+
+```bash
+python3 -m pip install usd-core
+./tools/usdz-add-audio.py porte.usdz ambiance.mp3 porte-sonore.usdz
+```
+
+Le script ajoute un prim `SpatialAudio` sous le prim par défaut, réempaquette
+modèle + textures + audio, puis relit le résultat pour vérifier que rien
+n'a été cassé. À exécuter sur chaque modèle, avant publication.
+
+Formats acceptés dans un USDZ : **M4A, MP3, WAV** — M4A de préférence, le
+poids s'ajoute à celui du modèle.
+
+---
+
 ## Ajouter une langue
 
 1. Ajoutez un bloc dans `js/i18n.js` (`I18N` et `CATEGORY`)
