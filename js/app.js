@@ -786,16 +786,12 @@ function stopArAudio(){
 /* ── loader de préparation ───────────────────────────────────── */
 
 let arPendingLaunch = false;   // l'utilisateur attend devant le loader
-let arOpenWatchdog  = null;
 
 function showArLoader(){
-  $('#arLoadGo').hidden = true;
-  $('#arLoadTitle').textContent = I18N[lang].arLoading;
   $('#arLoader').hidden = false;
 }
 
 function hideArLoader(){
-  clearTimeout(arOpenWatchdog);
   arPendingLaunch = false;
   $('#arLoader').hidden = true;
 }
@@ -869,18 +865,10 @@ function openQuickLook(){
   a.click();
   a.remove();
 
-  // Ce clic peut être programmatique (fin du téléchargement, plus de geste
-  // utilisateur en cours) et Safari a le droit de l'ignorer. Si la page a
-  // toujours le focus peu après, c'est que Quick Look ne s'est pas ouvert :
-  // on propose alors un bouton, dont le tap sera un vrai geste.
-  clearTimeout(arOpenWatchdog);
-  arOpenWatchdog = setTimeout(() => {
-    if (document.visibilityState === 'visible' && document.hasFocus()){
-      stopArAudio();   // pas de son sans scène
-      $('#arLoadTitle').textContent = I18N[lang].arReady;
-      $('#arLoadGo').hidden = false;
-    }
-  }, 1200);
+  // Pas de détection d'échec d'ouverture ici : la page conserve son focus
+  // pendant que Quick Look est affiché, aucun indicateur ne permet donc de
+  // distinguer « viewer ouvert » de « clic ignoré ». Si l'ouverture échoue,
+  // un tap sur le voile relance (voir le gestionnaire dans init).
 }
 
 function launchAr(glbUrl, usdzUrl){
@@ -1014,11 +1002,10 @@ function onPageResume(){
   // besoin du loader), on ne laisse pas le voile affiché
   hideArLoader();
 
-  // La scène est fermée, le son n'a plus de raison de continuer. Fenêtre
-  // de garde : iOS peut émettre un focus parasite dans la foulée du tap,
-  // avant même que Quick Look prenne l'écran — sans ce délai le son
-  // serait coupé aussitôt lancé.
-  if (Date.now() - arLaunchAt > 1500) stopArAudio();
+  // Le son n'est PAS coupé ici : la page reçoit focus et visibilitychange
+  // pendant que Quick Look est ouvert, la coupure tombait donc en pleine
+  // scène. Il s'arrête à la fermeture de la fiche d'étape, au changement
+  // de modèle, ou tout seul à la fin de la piste.
   if (el.screens.cam.classList.contains('is-active')) ensureCameraAlive();
 }
 
@@ -1052,8 +1039,11 @@ function init(){
   $('#farRetry').addEventListener('click', backToCamera);
   $('#camretry').addEventListener('click', startCamera);
 
-  // secours quand un clic programmatique n'a pas suffi à ouvrir la RA
-  $('#arLoadGo').addEventListener('click', openQuickLook);
+  // Secours discret : si l'ouverture programmatique de Quick Look a été
+  // ignorée, un tap sur le voile relance — et c'est alors un vrai geste.
+  $('#arLoader').addEventListener('click', () => {
+    if (arUsdzHref) openQuickLook();
+  });
 
   // modale d'étape
   $('#stepClose').addEventListener('click', closeStep);

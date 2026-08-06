@@ -1107,19 +1107,6 @@ svg{ fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; str
   50%    { transform:translateY(2px);  opacity:1; }
 }
 
-.arload__go{
-  margin-top:26px; padding:13px 26px;
-  border-radius:999px;
-  border:1px solid var(--edge-hi);
-  background:linear-gradient(180deg, rgba(77,240,255,.18), rgba(77,240,255,.05));
-  color:var(--cyan);
-  font-family:var(--m); font-size:.7rem;
-  letter-spacing:.12em; text-transform:uppercase;
-  box-shadow:0 8px 28px rgba(77,240,255,.18);
-  transition:transform .18s var(--ease);
-  animation:fade .3s var(--ease);
-}
-.arload__go:active{ transform:scale(.97); }
 
 /* ── navigation entre étapes ── */
 .modal__nav{
