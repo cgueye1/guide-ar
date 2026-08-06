@@ -580,7 +580,7 @@ function paintArButton(step){
   // au moment du tap, le lancement doit s'exécuter en tout premier,
   // de façon parfaitement synchrone avec le geste utilisateur — iOS
   // Safari annule Quick Look si le moindre await le précède.
-  preloadArModel(glbUrl, usdzUrl);
+  preloadArModel(glbUrl, usdzUrl, audioUrl);
 }
 
 function showArToast(msg, autoHideMs){
@@ -594,8 +594,8 @@ function showArToast(msg, autoHideMs){
 }
 function hideArToast(){ $('#arToast').hidden = true; }
 
-function preloadArModel(glbUrl, usdzUrl){
-  const key = glbUrl + '|' + usdzUrl;
+function preloadArModel(glbUrl, usdzUrl, audioUrl){
+  const key = glbUrl + '|' + usdzUrl + '|' + audioUrl;
   if (arModelKey === key) return;   // déjà (pré)chargé
   arModelKey = key;
 
@@ -612,10 +612,24 @@ function preloadArModel(glbUrl, usdzUrl){
   arViewer.removeAttribute('ios-src');
 
   if (glbUrl){
-    arViewer.src = glbUrl;
+    // Deux moteurs AR sur Android, deux façons de sonoriser la scène :
+    //
+    // - WebXR : la session tourne dans la page, on reçoit « object-placed »
+    //   et c'est playArAudio() qui joue le mp3.
+    // - Scene Viewer : app Google séparée, aucun événement ne nous revient.
+    //   model-viewer recopie les paramètres de la query string du src dans
+    //   l'intent, dont « sound » : c'est Scene Viewer qui joue alors le son
+    //   lui-même, au moment où le modèle est posé.
+    //
+    // Un seul des deux chemins s'exécute, il n'y a donc pas de double son.
+    const src = audioUrl
+      ? glbUrl + (glbUrl.includes('?') ? '&' : '?') + 'sound=' + encodeURIComponent(audioUrl)
+      : glbUrl;
+
+    arViewer.src = src;
     arViewer.addEventListener('error', () => {
-      if (arViewer.src === glbUrl) arModelKey = null;
-      console.warn('ar: échec de chargement du modèle glb', glbUrl);
+      if (arViewer.src === src) arModelKey = null;
+      console.warn('ar: échec de chargement du modèle glb', src);
     }, { once:true });
   } else {
     arViewer.removeAttribute('src');
@@ -722,8 +736,12 @@ let arAudio = null;
 function loadArAudio(url){
   stopArAudio();
   if (!url){ arAudio = null; return; }
-  arAudio = new Audio(url);
-  arAudio.preload = 'auto';
+
+  const a = new Audio(url);
+  a.preload = 'auto';
+  // sans ce garde-fou, un échec de chargement serait totalement silencieux
+  a.addEventListener('error', () => console.warn('ar: audio illisible', url, a.error));
+  arAudio = a;
 }
 
 function playArAudio(){
