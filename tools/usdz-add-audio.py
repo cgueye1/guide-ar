@@ -43,11 +43,15 @@ except ImportError:
 AUDIO_EXT = {".m4a", ".mp3", ".wav"}
 AUDIO_PRIM = "JojAmbience"
 
-# loopFromStage : la piste tourne en boucle tant que la scène est jouée.
-# Quick Look démarre la scène à la pose du modèle, le son suit donc
-# exactement la présence de l'objet dans le monde réel. Pour un son qui
-# ne passe qu'une fois : "onceFromStart".
-PLAYBACK_MODE = "loopFromStage"
+# Seul mode indépendant de la timeline de la scène : « Play the audio once,
+# starting at startTime, continuing until the audio completes. »
+#
+# Les trois modes en boucle (loopFromStart, loopFromStartToEnd,
+# loopFromStage) sont tous bornés par l'endTimeCode de la scène. Un modèle
+# scanné n'a aucune plage temporelle authorée — startTimeCode ==
+# endTimeCode == 0 — l'intervalle de lecture est donc vide et rien ne sort.
+# Les utiliser exigerait d'écrire une plage temporelle sur la scène.
+PLAYBACK_MODE = "onceFromStart"
 
 # nonSpatial : volume constant, indépendant de la position du spectateur.
 # "spatial" ferait décroître le son quand on s'éloigne du modèle.
@@ -117,6 +121,7 @@ def add_audio(usdz_in: Path, audio: Path, usdz_out: Path) -> None:
         spatial.CreateAuralModeAttr(AURAL_MODE)
         spatial.CreatePlaybackModeAttr(PLAYBACK_MODE)
         stage.GetRootLayer().Save()
+        del stage  # force le flush sur disque avant le repackaging ci-dessous
 
         # Variante ARKit de l'empaquetage : c'est celle qui produit la
         # structure attendue par AR Quick Look.
