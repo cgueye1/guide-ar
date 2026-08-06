@@ -526,6 +526,7 @@ function closeStep(){
   $('#stepTube').src = '';
   $('#stepModal').hidden = true;
   document.body.style.overflow = '';
+  hideArLoader();   // annule une attente d'ouverture AR en cours
 }
 
 
@@ -594,6 +595,7 @@ function preloadArModel(glbUrl, usdzUrl){
   // ni model-viewer ni le GLB ne servent, autant ne pas les télécharger.
   if (IS_IOS){
     arUsdzHref = '';           // renseigné par prepareUsdzHref
+    setArProgress(null);       // anneau indéterminé le temps du HEAD
     prepareUsdzHref(usdzUrl, key);
     return;
   }
@@ -640,35 +642,115 @@ async function prepareUsdzHref(usdzUrl, expectedKey){
     if (arModelKey !== expectedKey) return;          // étape changée entre-temps
 
     // type correct : l'URL distante s'ouvrira directement en mode RA
-    if (type.startsWith(USDZ_MIME)){ arUsdzHref = usdzUrl; return; }
+    if (type.startsWith(USDZ_MIME)){ arUsdzReady(usdzUrl, expectedKey); return; }
 
     // type incorrect : on préfère faire attendre le téléchargement plutôt
     // que d'ouvrir un aperçu « Objet » dégradé
     console.warn(`ar: .usdz servi en "${type}" au lieu de ${USDZ_MIME}`);
-    const res = await fetch(usdzUrl);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const bytes = await res.arrayBuffer();
-    if (arModelKey !== expectedKey) return;
+    const bytes = await downloadWithProgress(usdzUrl, expectedKey);
+    if (!bytes || arModelKey !== expectedKey) return;
 
     if (usdzBlobUrl) URL.revokeObjectURL(usdzBlobUrl);
     usdzBlobUrl = URL.createObjectURL(new Blob([bytes], { type: USDZ_MIME }));
-    arUsdzHref  = usdzBlobUrl;
+    arUsdzReady(usdzBlobUrl, expectedKey);
   } catch (err) {
     // vérification impossible (CORS) ou téléchargement échoué : on tente
     // l'URL distante telle quelle, au moins le modèle sera visible
     console.warn('ar: type MIME du .usdz non vérifiable', usdzUrl, err);
-    if (arModelKey === expectedKey) arUsdzHref = usdzUrl;
+    if (arModelKey === expectedKey) arUsdzReady(usdzUrl, expectedKey);
   }
 }
 
-function launchArQuickLook(){
-  const t = I18N[lang];
+/* Télécharge en suivant la progression, pour alimenter l'anneau du loader.
+   Response.body permet de compter les octets au fil de l'eau ; sans lui
+   (ou sans Content-Length) on retombe sur un anneau indéterminé. */
+async function downloadWithProgress(url, expectedKey){
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
+  const total = Number(res.headers.get('content-length')) || 0;
+  if (!res.body || !total){
+    setArProgress(null);
+    return res.arrayBuffer();
+  }
+
+  const reader = res.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+
+  for (;;){
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (arModelKey !== expectedKey){ reader.cancel(); return null; }
+    chunks.push(value);
+    loaded += value.length;
+    setArProgress(loaded / total);
+  }
+
+  const out = new Uint8Array(loaded);
+  let at = 0;
+  for (const c of chunks){ out.set(c, at); at += c.length; }
+  return out;
+}
+
+/* Le modèle est utilisable. Si l'utilisateur a déjà tapé le bouton et
+   attend devant le loader, on enchaîne sur l'ouverture. */
+function arUsdzReady(href, expectedKey){
+  if (arModelKey !== expectedKey) return;
+  arUsdzHref = href;
+  setArProgress(1);
+  if (arPendingLaunch){
+    arPendingLaunch = false;
+    openQuickLook();
+  }
+}
+
+/* ── loader de préparation ───────────────────────────────────── */
+
+let arPendingLaunch = false;   // l'utilisateur attend devant le loader
+let arOpenWatchdog  = null;
+
+function showArLoader(){
+  $('#arLoadGo').hidden = true;
+  $('#arLoadTitle').textContent = I18N[lang].arLoading;
+  $('#arLoader').hidden = false;
+}
+
+function hideArLoader(){
+  clearTimeout(arOpenWatchdog);
+  arPendingLaunch = false;
+  $('#arLoader').hidden = true;
+}
+
+/* ratio entre 0 et 1, ou null quand la taille totale est inconnue */
+function setArProgress(ratio){
+  const box  = $('#arLoader');
+  const fill = $('#arLoadFill');
+
+  if (ratio == null){
+    box.classList.add('is-indeterminate');
+    return;
+  }
+  box.classList.remove('is-indeterminate');
+  const pct = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+  fill.style.strokeDashoffset = String(327 - 327 * pct / 100);
+  $('#arLoadPct').textContent = pct + '%';
+}
+
+function launchArQuickLook(){
   if (navigator.vibrate) navigator.vibrate(10);
 
-  // modèle pas encore prêt : on ne lance rien, un tap plus tard suffira
-  if (!arUsdzHref){ showArToast(t.arLoading, 2600); return; }
+  showArLoader();
 
+  // Pas encore prêt : le loader reste affiché et arUsdzReady() enchaînera
+  // sur l'ouverture dès la fin du téléchargement.
+  if (!arUsdzHref){ arPendingLaunch = true; return; }
+
+  setArProgress(1);
+  openQuickLook();
+}
+
+function openQuickLook(){
   // AR Quick Look va prendre le capteur : on le libère pour ARKit,
   // sinon iOS peut ne plus délivrer aucune image au retour dans la page.
   stopCamera();
@@ -694,6 +776,18 @@ function launchArQuickLook(){
   document.body.appendChild(a);
   a.click();
   a.remove();
+
+  // Ce clic peut être programmatique (fin du téléchargement, plus de geste
+  // utilisateur en cours) et Safari a le droit de l'ignorer. Si la page a
+  // toujours le focus peu après, c'est que Quick Look ne s'est pas ouvert :
+  // on propose alors un bouton, dont le tap sera un vrai geste.
+  clearTimeout(arOpenWatchdog);
+  arOpenWatchdog = setTimeout(() => {
+    if (document.visibilityState === 'visible' && document.hasFocus()){
+      $('#arLoadTitle').textContent = I18N[lang].arReady;
+      $('#arLoadGo').hidden = false;
+    }
+  }, 1200);
 }
 
 function launchAr(glbUrl, usdzUrl){
@@ -701,11 +795,17 @@ function launchAr(glbUrl, usdzUrl){
 
   if (navigator.vibrate) navigator.vibrate(10);
 
+  // model-viewer ne publie pas de progression de chargement exploitable
+  // ici : anneau indéterminé jusqu'au démarrage de la session.
+  setArProgress(null);
+  showArLoader();
+
   // écoute le statut de la session AR pour guider l'utilisateur
   // pendant la recherche de surface / l'ancrage au sol
   const onArStatus = (ev) => {
     switch (ev.detail.status){
       case 'session-started':
+        hideArLoader();
         showArToast(t.arAimFloor);
         break;
       case 'object-placed':
@@ -713,6 +813,7 @@ function launchAr(glbUrl, usdzUrl){
         break;
       case 'not-presenting':
       case 'failed':
+        hideArLoader();
         hideArToast();
         arViewer.removeEventListener('ar-status', onArStatus);
         if (ev.detail.status === 'failed') showArToast(t.arLoadError, 2600);
@@ -729,6 +830,7 @@ function launchAr(glbUrl, usdzUrl){
   if (result && typeof result.catch === 'function'){
     result.catch(err => {
       console.warn('ar:', err);
+      hideArLoader();
       showArToast(t.arNotSupported, 2600);
     });
   }
@@ -813,6 +915,9 @@ function ensureCameraAlive(){
 }
 
 function onPageResume(){
+  // retour dans la page : le moteur AR natif s'est fermé (ou n'a pas eu
+  // besoin du loader), on ne laisse pas le voile affiché
+  hideArLoader();
   if (el.screens.cam.classList.contains('is-active')) ensureCameraAlive();
 }
 
@@ -845,6 +950,9 @@ function init(){
   $('#retry').addEventListener('click', backToCamera);
   $('#farRetry').addEventListener('click', backToCamera);
   $('#camretry').addEventListener('click', startCamera);
+
+  // secours quand un clic programmatique n'a pas suffi à ouvrir la RA
+  $('#arLoadGo').addEventListener('click', openQuickLook);
 
   // modale d'étape
   $('#stepClose').addEventListener('click', closeStep);

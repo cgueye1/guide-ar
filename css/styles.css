@@ -1017,6 +1017,110 @@ svg{ fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; str
   50%{ opacity:.4; transform:scale(.7); }
 }
 
+/* ── préparation de la scène AR ──
+   Couvre le temps entre le tap et l'ouverture du moteur AR natif. */
+.arload{
+  position:fixed; inset:0; z-index:90;
+  display:flex; align-items:center; justify-content:center;
+  padding:var(--pad);
+  background:radial-gradient(120% 80% at 50% 40%, rgba(8,24,38,.94), rgba(4,7,14,.975));
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+  animation:fade .32s var(--ease);
+}
+.arload__aura{
+  position:absolute; left:50%; top:44%;
+  width:min(78vw,400px); height:min(78vw,400px);
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  background:radial-gradient(circle, rgba(77,240,255,.17), transparent 66%);
+  filter:blur(20px);
+  animation:arloadAura 3.4s ease-in-out infinite;
+}
+@keyframes arloadAura{
+  0%,100%{ opacity:.5; transform:translate(-50%,-50%) scale(1); }
+  50%    { opacity:1;  transform:translate(-50%,-50%) scale(1.08); }
+}
+
+/* min-width:0 est indispensable : sans lui l'élément flex refuse de
+   descendre sous la largeur de son contenu et max-width reste sans effet,
+   l'indice débordant alors hors de l'écran. */
+.arload__inner{
+  position:relative; text-align:center;
+  width:100%; max-width:320px; min-width:0;
+}
+
+.arload__ring{ position:relative; width:124px; height:124px; margin:0 auto 26px; }
+.arload__ring svg{ width:100%; height:100%; transform:rotate(-90deg); }
+.arload__ring circle{ fill:none; stroke-width:3; }
+.arload__track{ stroke:rgba(77,240,255,.14); }
+.arload__fill{
+  stroke:var(--cyan); stroke-linecap:round;
+  /* 2πr avec r=52 ≈ 327 : l'anneau se vide de son décalage en se remplissant */
+  stroke-dasharray:327; stroke-dashoffset:327;
+  filter:drop-shadow(0 0 6px rgba(77,240,255,.65));
+  transition:stroke-dashoffset .3s var(--ease);
+}
+.arload__pct{
+  position:absolute; inset:0;
+  display:flex; align-items:center; justify-content:center;
+  font-family:var(--m); font-size:1.02rem; letter-spacing:.04em;
+  color:var(--cyan);
+  text-shadow:0 0 18px rgba(77,240,255,.5);
+}
+
+/* progression inconnue (Content-Length absent, moteur Android) :
+   l'anneau tourne au lieu de se remplir */
+.arload.is-indeterminate .arload__ring svg{ animation:arloadSpin 1.15s linear infinite; }
+.arload.is-indeterminate .arload__fill{
+  stroke-dasharray:82 245; stroke-dashoffset:0; transition:none;
+}
+.arload.is-indeterminate .arload__pct{ opacity:0; }
+@keyframes arloadSpin{ to{ transform:rotate(270deg); } }
+
+.arload__t{
+  font-family:var(--d); font-weight:500;
+  font-size:1.06rem; letter-spacing:-.01em;
+  color:#F0FBFF;
+  margin-bottom:13px;
+}
+/* Bloc, et non flex : l'icône coule alors avec la première ligne du
+   texte. En flex, le <span> occupait toute la largeur et l'icône se
+   retrouvait isolée à l'extrémité gauche. */
+.arload__hint{
+  display:block;
+  font-family:var(--m); font-size:.65rem;
+  letter-spacing:.08em; text-transform:uppercase; line-height:1.62;
+  color:var(--mist-dim);
+  text-align:center;
+  text-wrap:balance;   /* évite le mot orphelin en fin de phrase */
+}
+.arload__hint svg{
+  display:inline-block; vertical-align:-3px;
+  width:15px; height:15px; margin-right:7px;
+  stroke:var(--jade); fill:none; stroke-width:1.7;
+  stroke-linecap:round; stroke-linejoin:round;
+  animation:arloadAim 1.9s ease-in-out infinite;
+}
+@keyframes arloadAim{
+  0%,100%{ transform:translateY(-2px); opacity:.6; }
+  50%    { transform:translateY(2px);  opacity:1; }
+}
+
+.arload__go{
+  margin-top:26px; padding:13px 26px;
+  border-radius:999px;
+  border:1px solid var(--edge-hi);
+  background:linear-gradient(180deg, rgba(77,240,255,.18), rgba(77,240,255,.05));
+  color:var(--cyan);
+  font-family:var(--m); font-size:.7rem;
+  letter-spacing:.12em; text-transform:uppercase;
+  box-shadow:0 8px 28px rgba(77,240,255,.18);
+  transition:transform .18s var(--ease);
+  animation:fade .3s var(--ease);
+}
+.arload__go:active{ transform:scale(.97); }
+
 /* ── navigation entre étapes ── */
 .modal__nav{
   display:flex; gap:10px;

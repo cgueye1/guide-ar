@@ -246,7 +246,7 @@
 
         <button class="ar-btn" id="stepArBtn" type="button" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg>
-          <span data-i18n="viewAr">Voir en réalité augmentée</span>
+          <span data-i18n="viewAr">Voyager dans le temps</span>
         </button>
       </div>
 
@@ -286,6 +286,35 @@
 <div class="artoast" id="arToast" hidden>
   <span class="artoast__dot" aria-hidden="true"></span>
   <span id="arToastMsg">—</span>
+</div>
+
+<!-- ═══════════════ PRÉPARATION DE LA SCÈNE AR ═══════════════ -->
+<div class="arload" id="arLoader" hidden role="status" aria-live="polite">
+  <div class="arload__aura" aria-hidden="true"></div>
+
+  <div class="arload__inner">
+    <div class="arload__ring" id="arLoadRing">
+      <svg viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="arload__track" cx="60" cy="60" r="52"/>
+        <circle class="arload__fill"  cx="60" cy="60" r="52" id="arLoadFill"/>
+      </svg>
+      <span class="arload__pct" id="arLoadPct">—</span>
+    </div>
+
+    <p class="arload__t" id="arLoadTitle" data-i18n="arLoading">Préparation de l'expérience…</p>
+
+    <p class="arload__hint">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 3v9"/><path d="M8.5 8.5L12 12l3.5-3.5"/>
+        <path d="M3 16.5l9 4.5 9-4.5"/>
+      </svg>
+      <span data-i18n="arAimFloor">Déplacez votre téléphone pour repérer le sol</span>
+    </p>
+
+    <button class="arload__go" id="arLoadGo" type="button" hidden>
+      <span data-i18n="arOpen">Entrer dans la scène</span>
+    </button>
+  </div>
 </div>
 
 

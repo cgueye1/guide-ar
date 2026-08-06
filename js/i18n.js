@@ -27,10 +27,12 @@ const I18N = {
     watch:      "Vidéo",
 
     /* ── réalité augmentée ── */
-    viewAr:      "Voir en réalité augmentée",
+    viewAr:      "Voyager dans le temps",
     arNotSupported: "La RA n'est pas prise en charge sur cet appareil",
-    arLoading:   "Chargement du modèle 3D…",
+    arLoading:   "Préparation de l'expérience…",
+    arReady:     "Scène prête",
     arLoadError: "Impossible de charger le modèle 3D",
+    arOpen:      "Entrer dans la scène",
     arAimFloor:  "Déplacez votre téléphone pour repérer le sol",
     arTapPlace:  "Appuyez à l'endroit où poser l'objet",
     arPlaced:    "Objet placé",
@@ -81,10 +83,12 @@ const I18N = {
     watch:      "Video",
 
     /* ── augmented reality ── */
-    viewAr:      "View in augmented reality",
+    viewAr:      "Travel back in time",
     arNotSupported: "AR isn't supported on this device",
-    arLoading:   "Loading 3D model…",
+    arLoading:   "Preparing the experience…",
+    arReady:     "Scene ready",
     arLoadError: "Couldn't load the 3D model",
+    arOpen:      "Enter the scene",
     arAimFloor:  "Move your phone to find the floor",
     arTapPlace:  "Tap where you'd like to place it",
     arPlaced:    "Object placed",
