@@ -571,10 +571,7 @@ function paintArButton(step){
   btn.disabled = false;
   btn.onclick = IS_IOS ? launchArQuickLook : () => launchAr(glbUrl, usdzUrl);
 
-  // AR Quick Look est une app native : la page n'y reçoit aucun événement
-  // de pose, on ne saurait donc pas quand déclencher le son. Inutile de
-  // télécharger le mp3 sur iOS.
-  loadArAudio(IS_IOS ? '' : audioUrl);
+  loadArAudio(audioUrl);
 
   // précharge le modèle en tâche de fond dès que le bouton apparaît :
   // au moment du tap, le lancement doit s'exécuter en tout premier,
@@ -728,10 +725,18 @@ function arUsdzReady(href, expectedKey){
 }
 
 /* ── son de la scène AR ───────────────────────────────────────
-   Déclenché au moment où le modèle est posé dans le monde réel, et
-   uniquement à ce moment : c'est ce que signale « object-placed ». Le son
-   est préchargé dès l'apparition du bouton pour démarrer sans latence. */
-let arAudio = null;
+   Android : déclenché au moment exact où le modèle est posé, signalé par
+   « object-placed » (WebXR), ou joué par Scene Viewer lui-même.
+
+   iOS : AR Quick Look est une app native, la page ne reçoit aucun
+   événement de pose. Le son part donc au tap et continue en fond pendant
+   la session — soit quelques secondes avant la pose réelle. Le seul moyen
+   d'être synchrone sur iOS est d'embarquer l'audio dans le .usdz
+   (prim UsdMediaSpatialAudio), ce qui relève de la génération des modèles.
+
+   Le son est préchargé dès l'apparition du bouton pour éviter la latence. */
+let arAudio    = null;
+let arLaunchAt = 0;     // horodatage du dernier lancement de Quick Look
 
 function loadArAudio(url){
   stopArAudio();
@@ -749,6 +754,26 @@ function playArAudio(){
   // le tap sur le bouton RA vaut activation utilisateur : la lecture est
   // autorisée, mais on trace le refus éventuel plutôt que de l'ignorer
   arAudio.play().catch(err => console.warn('ar: lecture audio refusée', err));
+}
+
+/* iOS n'autorise la PREMIÈRE lecture d'un média que pendant un geste
+   utilisateur. Quand l'ouverture de Quick Look doit attendre la fin du
+   téléchargement, le clic devient programmatique et il est trop tard.
+   On lance donc la lecture dès le tap pour lever le verrou, puis on met
+   en pause : l'élément reste débloqué et repartira par programme. */
+function primeArAudio(){
+  if (!arAudio) return;
+  const p = arAudio.play();
+  if (p && typeof p.catch === 'function'){
+    p.catch(err => {
+      // AbortError est attendu : c'est le stopArAudio() qui suit quand
+      // l'ouverture doit attendre le téléchargement. Le verrou est levé
+      // malgré tout, puisque play() a bien été appelé dans le geste.
+      if (!err || err.name !== 'AbortError'){
+        console.warn('ar: audio non débloqué', err);
+      }
+    });
+  }
 }
 
 function stopArAudio(){
@@ -795,15 +820,29 @@ function launchArQuickLook(){
 
   showArLoader();
 
+  // dans le geste : lève le verrou de lecture d'iOS
+  primeArAudio();
+
   // Pas encore prêt : le loader reste affiché et arUsdzReady() enchaînera
-  // sur l'ouverture dès la fin du téléchargement.
-  if (!arUsdzHref){ arPendingLaunch = true; return; }
+  // sur l'ouverture dès la fin du téléchargement. Pas de son pendant
+  // l'attente, mais l'élément audio reste débloqué.
+  if (!arUsdzHref){
+    stopArAudio();
+    arPendingLaunch = true;
+    return;
+  }
 
   setArProgress(1);
   openQuickLook();
 }
 
 function openQuickLook(){
+  arLaunchAt = Date.now();
+
+  // Le son accompagne la session Quick Look. L'élément a été débloqué par
+  // le tap, la relance fonctionne donc même après l'attente du modèle.
+  playArAudio();
+
   // AR Quick Look va prendre le capteur : on le libère pour ARKit,
   // sinon iOS peut ne plus délivrer aucune image au retour dans la page.
   stopCamera();
@@ -837,6 +876,7 @@ function openQuickLook(){
   clearTimeout(arOpenWatchdog);
   arOpenWatchdog = setTimeout(() => {
     if (document.visibilityState === 'visible' && document.hasFocus()){
+      stopArAudio();   // pas de son sans scène
       $('#arLoadTitle').textContent = I18N[lang].arReady;
       $('#arLoadGo').hidden = false;
     }
@@ -973,6 +1013,12 @@ function onPageResume(){
   // retour dans la page : le moteur AR natif s'est fermé (ou n'a pas eu
   // besoin du loader), on ne laisse pas le voile affiché
   hideArLoader();
+
+  // La scène est fermée, le son n'a plus de raison de continuer. Fenêtre
+  // de garde : iOS peut émettre un focus parasite dans la foulée du tap,
+  // avant même que Quick Look prenne l'écran — sans ce délai le son
+  // serait coupé aussitôt lancé.
+  if (Date.now() - arLaunchAt > 1500) stopArAudio();
   if (el.screens.cam.classList.contains('is-active')) ensureCameraAlive();
 }
 
